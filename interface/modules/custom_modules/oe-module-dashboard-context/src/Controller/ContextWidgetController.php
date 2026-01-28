@@ -48,6 +48,8 @@ class ContextWidgetController
         $currentWidgets = $this->contextService->getFullWidgetConfig($this->userId);
         $isLocked = $this->contextService->isUserContextLocked($this->userId);
         $canSwitch = (OEGlobalsBag::getInstance()->get('dashboard_context_user_can_switch') ?? true) && !$isLocked;
+        $widgetOrder = $this->contextService->getWidgetOrder($this->userId, $activeContext);
+        $widgetLabels = $this->contextService->getWidgetLabels($activeContext);
 
         $csrfToken = CsrfUtils::collectCsrfToken();
         $webRoot = OEGlobalsBag::getInstance()->get('webroot') ?? '';
@@ -154,7 +156,9 @@ class ContextWidgetController
                     widgets: <?php echo js_escape($currentWidgets); ?>,
                     manageableWidgets: <?php echo js_escape($manageableWidgets); ?>,
                     customContexts: <?php echo js_escape($customContexts); ?>,
-                    canSwitch: <?php echo js_escape($canSwitch); ?>
+                    canSwitch: <?php echo js_escape($canSwitch); ?>,
+                    widgetOrder: <?php echo js_escape($widgetOrder); ?>,
+                    widgetLabels: <?php echo js_escape($widgetLabels); ?>
                 },
 
                 xl: {
@@ -305,6 +309,8 @@ class ContextWidgetController
                                     }
                                 }
                                 self.config.widgets = fullWidgets;
+                                self.config.widgetOrder = response.widget_order || [];
+                                self.config.widgetLabels = response.widget_labels || {};
                                 self.applyWidgetVisibility();
                             }
                         }
@@ -380,22 +386,53 @@ class ContextWidgetController
                             }
                         }
                     }
+                    this.applyWidgetOrder();
                     $(document).trigger('dashboardContextChanged', [this.config.currentContext, this.config.widgets]);
+                },
+
+                applyWidgetOrder: function() {
+                    const order = this.config.widgetOrder;
+                    if (!order || !order.length) return;
+
+                    // Collect all widget cards and their parent container
+                    let $parentContainer = null;
+                    const cardMap = {};
+
+                    for (let i = 0; i < order.length; i++) {
+                        const $card = this.findWidgetCard(order[i]);
+                        if ($card && $card.length) {
+                            if (!$parentContainer) {
+                                $parentContainer = $card.parent();
+                            }
+                            cardMap[order[i]] = $card;
+                        }
+                    }
+
+                    if (!$parentContainer || !$parentContainer.length) return;
+
+                    // Reorder by appending in order
+                    for (let i = 0; i < order.length; i++) {
+                        if (cardMap[order[i]]) {
+                            $parentContainer.append(cardMap[order[i]]);
+                        }
+                    }
                 },
 
                 showSettingsDialog: function() {
                     const self = this;
                     const contextLabel = this.config.contexts[this.config.currentContext] || this.config.currentContext;
+                    const customLabels = this.config.widgetLabels || {};
 
-                    // Build widget toggles
+                    // Build widget toggles with custom labels
                     let widgetToggles = '';
                     for (const [widgetId, label] of Object.entries(this.config.manageableWidgets)) {
+                        const displayLabel = customLabels[widgetId] || label;
                         const checked = this.config.widgets[widgetId] === true ? 'checked' : '';
                         const safeId = widgetId.replace(/[^a-zA-Z0-9_-]/g, '_');
                         widgetToggles += '<div class="form-check">' +
                             '<input class="form-check-input widget-toggle" type="checkbox" ' +
                             'id="nav_toggle_' + safeId + '" data-widget-id="' + self.escapeAttr(widgetId) + '" ' + checked + '>' +
-                            '<label class="form-check-label" for="nav_toggle_' + safeId + '">' + self.escapeHtml(label) + '</label>' +
+                            '<label class="form-check-label" for="nav_toggle_' + safeId + '">' + self.escapeHtml(displayLabel) + '</label>' +
                             '</div>';
                     }
 
@@ -706,6 +743,8 @@ class ContextWidgetController
         $currentWidgets = $this->contextService->getFullWidgetConfig($this->userId);
         $isLocked = $this->contextService->isUserContextLocked($this->userId);
         $canSwitch = (OEGlobalsBag::getInstance()->get('dashboard_context_user_can_switch') ?? true) && !$isLocked;
+        $widgetOrder = $this->contextService->getWidgetOrder($this->userId, $activeContext);
+        $widgetLabels = $this->contextService->getWidgetLabels($activeContext);
 
         $csrfToken = CsrfUtils::collectCsrfToken();
         $webRoot = OEGlobalsBag::getInstance()->get('webroot') ?? '';
@@ -831,7 +870,9 @@ class ContextWidgetController
                         widgets: <?php echo js_escape($currentWidgets); ?>,
                         manageableWidgets: <?php echo js_escape($manageableWidgets); ?>,
                         customContexts: <?php echo js_escape($customContexts); ?>,
-                        canSwitch: <?php echo js_escape($canSwitch); ?>
+                        canSwitch: <?php echo js_escape($canSwitch); ?>,
+                        widgetOrder: <?php echo js_escape($widgetOrder); ?>,
+                        widgetLabels: <?php echo js_escape($widgetLabels); ?>
                     },
 
                     xl: {
@@ -883,16 +924,18 @@ class ContextWidgetController
                     showSettingsDialog: function () {
                         const self = this;
                         const contextLabel = this.config.contexts[this.config.currentContext] || this.config.currentContext;
+                        const customLabels = this.config.widgetLabels || {};
 
-                        // Build widget toggles
+                        // Build widget toggles with custom labels
                         let widgetToggles = '';
                         for (const [widgetId, label] of Object.entries(this.config.manageableWidgets)) {
+                            const displayLabel = customLabels[widgetId] || label;
                             const checked = this.config.widgets[widgetId] === true ? 'checked' : '';
                             const safeId = widgetId.replace(/[^a-zA-Z0-9_-]/g, '_');
                             widgetToggles += '<div class="form-check">' +
                                 '<input class="form-check-input widget-toggle" type="checkbox" ' +
                                 'id="toggle_' + safeId + '" data-widget-id="' + self.escapeAttr(widgetId) + '" ' + checked + '>' +
-                                '<label class="form-check-label" for="toggle_' + safeId + '">' + self.escapeHtml(label) + '</label>' +
+                                '<label class="form-check-label" for="toggle_' + safeId + '">' + self.escapeHtml(displayLabel) + '</label>' +
                                 '</div>';
                         }
 
@@ -1054,6 +1097,8 @@ class ContextWidgetController
                                         }
                                     }
                                     self.config.widgets = fullWidgets;
+                                    self.config.widgetOrder = response.widget_order || [];
+                                    self.config.widgetLabels = response.widget_labels || {};
                                     self.applyWidgetVisibility();
                                 }
                             }
@@ -1146,7 +1191,39 @@ class ContextWidgetController
                             }
                         }
 
+                        this.applyWidgetOrder();
                         $(document).trigger('dashboardContextChanged', [this.config.currentContext, this.config.widgets]);
+                    },
+
+                    /**
+                     * Apply widget display order based on current configuration
+                     */
+                    applyWidgetOrder: function () {
+                        const order = this.config.widgetOrder;
+                        if (!order || !order.length) return;
+
+                        // Collect all widget cards and their parent container
+                        let $parentContainer = null;
+                        const cardMap = {};
+
+                        for (let i = 0; i < order.length; i++) {
+                            const $card = this.findWidgetCard(order[i]);
+                            if ($card && $card.length) {
+                                if (!$parentContainer) {
+                                    $parentContainer = $card.parent();
+                                }
+                                cardMap[order[i]] = $card;
+                            }
+                        }
+
+                        if (!$parentContainer || !$parentContainer.length) return;
+
+                        // Reorder by appending in order
+                        for (let i = 0; i < order.length; i++) {
+                            if (cardMap[order[i]]) {
+                                $parentContainer.append(cardMap[order[i]]);
+                            }
+                        }
                     },
 
                     saveSettings: function () {
